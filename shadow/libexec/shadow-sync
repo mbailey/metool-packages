@@ -1,0 +1,257 @@
+#!/usr/bin/env bash
+set -o nounset -o pipefail -o errexit
+# shadow-sync.sh - Synchronize shadow repositories with main repo
+
+# Colors for output (with NO_COLOR support)
+if [ -n "${NO_COLOR:-}" ]; then
+    RED=''
+    GREEN=''
+    YELLOW=''
+    BLUE=''
+    NC=''
+else
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    BLUE='\033[0;34m'
+    NC='\033[0m' # No Color
+fi
+
+# Get absolute path to script, even when called via symlink
+command -v realpath &> /dev/null || {
+    echo "Error: 'realpath' is required but not found. Please install 'coreutils' (e.g. 'brew install coreutils' on macOS)." >&2
+    exit 1
+}
+SCRIPT_PATH="$(realpath "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
+
+# Get repo root
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
+    echo -e "${RED}Error: Not in a git repository${NC}"
+    exit 1
+}
+
+# Get repo name for multi-repo shadows
+REPO_NAME=$(basename "$REPO_ROOT")
+
+SHADOWFILE="$REPO_ROOT/.shadowfile"
+
+echo -e "${BLUE}Shadow Sync${NC}"
+echo "Repository: $REPO_ROOT"
+echo
+
+# Function to calculate relative path from source to target
+calculate_relative_path() {
+    local source="$1"
+    local target="$2"
+    
+    # Get the canonical directory paths
+    local source_dir=$(dirname "$source")
+    local target_dir=$(dirname "$target")
+    
+    # Calculate relative path
+    local relative_path=$(realpath --relative-to="$source_dir" "$target_dir")/$(basename "$target")
+    echo "$relative_path"
+}
+
+# Function to create symlink with relative path
+create_symlink() {
+    local source="$1"
+    local target="$2"
+    local rel_path="$3"
+    
+    # Create parent directory if needed
+    local target_dir=$(dirname "$target")
+    if [ ! -d "$target_dir" ]; then
+        echo "  Creating directory: ${target_dir#$REPO_ROOT/}"
+        mkdir -p "$target_dir"
+    fi
+    
+    # Calculate relative path for symlink
+    local relative_target=$(calculate_relative_path "$target" "$source")
+    
+    # Create symlink with relative path
+    ln -sfn "$relative_target" "$target"
+    echo -e "  ${GREEN}✓${NC} Linked: $rel_path -> $relative_target"
+}
+
+# Check for .shadowfile
+if [ ! -f "$SHADOWFILE" ]; then
+    echo -e "${YELLOW}No .shadowfile found${NC}"
+    echo "Create .shadowfile with paths to shadow repositories"
+    exit 1
+fi
+
+echo "Reading shadow repositories..."
+
+# Process each shadow repo
+SHADOW_COUNT=0
+LINK_CREATED=0
+LINK_REMOVED=0
+LINK_EXISTS=0
+
+while IFS= read -r line; do
+    # Skip comments and empty lines
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "${line// }" ]] && continue
+    
+    # Convert to absolute path
+    if [[ "$line" == /* ]]; then
+        SHADOW_ABS="$line"
+    else
+        SHADOW_ABS="$REPO_ROOT/$line"
+    fi
+    
+    # Normalize path
+    SHADOW_ABS=$(realpath -m "$SHADOW_ABS")
+    
+    echo
+    echo -e "Shadow: ${BLUE}${line}${NC}"
+    
+    # Check if shadow exists
+    if [ ! -d "$SHADOW_ABS" ]; then
+        echo -e "  ${YELLOW}Warning: Shadow directory not found${NC}"
+        continue
+    fi
+    
+    SHADOW_COUNT=$((SHADOW_COUNT + 1))
+    
+    # Determine shadow type and base directory
+    shadow_basename=$(basename "$SHADOW_ABS")
+    shadow_base_dir="$SHADOW_ABS"
+    
+    # Check if this is a multi-repo shadow (starts with "shadow-")
+    if [[ "$shadow_basename" =~ ^shadow- ]]; then
+        echo -e "  ${BLUE}Type: Multi-repo shadow${NC}"
+        # For multi-repo shadows, look for subdirectory matching repo name
+        shadow_base_dir="$SHADOW_ABS/$REPO_NAME"
+        if [ ! -d "$shadow_base_dir" ]; then
+            echo -e "  ${YELLOW}No content for repository '$REPO_NAME' in this shadow${NC}"
+            continue
+        fi
+    elif [[ "$shadow_basename" == "$REPO_NAME-shadow" ]]; then
+        echo -e "  ${BLUE}Type: Single-repo shadow${NC}"
+        # For single-repo shadows, use the shadow root directly
+    else
+        echo -e "  ${BLUE}Type: Custom shadow${NC}"
+        # For custom shadows, use the shadow root directly
+    fi
+    
+    # Find all content in shadow repo
+    echo "  Scanning for content..."
+    
+    # Function to sync a directory recursively with smart traversal
+    sync_directory() {
+        local shadow_dir="$1"
+        local relative_base="$2"
+        
+        # Process items at this level
+        for item in "$shadow_dir"/*; do
+            # Skip if glob didn't match anything
+            [ ! -e "$item" ] && continue
+            
+            # Skip .git directory and scripts
+            [[ "$item" == *"/.git"* ]] && continue
+            [[ "$item" == */scripts ]] && continue
+            
+            # Skip README.md at shadow root (common in shadow repos)
+            if [[ "$relative_base" == "" ]] && [[ "$(basename "$item")" == "README.md" ]]; then
+                continue
+            fi
+            
+            # Get item name
+            local item_name=$(basename "$item")
+            local rel_path="$relative_base/$item_name"
+            rel_path="${rel_path#/}"  # Remove leading slash
+            
+            # Calculate target in main repo
+            local target_path="$REPO_ROOT/$rel_path"
+            
+            # Check if target is already a symlink
+            if [ -L "$target_path" ]; then
+                # Verify it points to the right place using relative path
+                local current_target=$(readlink "$target_path")
+                local expected_relative=$(calculate_relative_path "$target_path" "$item")
+                
+                if [ "$current_target" = "$expected_relative" ]; then
+                    LINK_EXISTS=$((LINK_EXISTS + 1))
+                    # Skip this entire subtree - it's already correctly linked
+                    continue
+                else
+                    echo -e "  ${YELLOW}Updating symlink: $rel_path${NC}"
+                    create_symlink "$item" "$target_path" "$rel_path"
+                    LINK_CREATED=$((LINK_CREATED + 1))
+                    # Skip subtree - we've linked the whole directory
+                    continue
+                fi
+            elif [ -e "$target_path" ]; then
+                if [ -d "$target_path" ] && [ -d "$item" ]; then
+                    # Both are directories - recurse
+                    sync_directory "$item" "$rel_path"
+                else
+                    # Conflict - something exists that's not a symlink
+                    echo -e "  ${RED}Conflict: $rel_path already exists (not a symlink)${NC}"
+                fi
+            else
+                # Target doesn't exist - create symlink
+                if [ -d "$item" ]; then
+                    # Link entire directory if it has content
+                    if [ -n "$(ls -A "$item" 2>/dev/null)" ]; then
+                        create_symlink "$item" "$target_path" "$rel_path"
+                        LINK_CREATED=$((LINK_CREATED + 1))
+                    fi
+                else
+                    # Always create symlinks for files
+                    create_symlink "$item" "$target_path" "$rel_path"
+                    LINK_CREATED=$((LINK_CREATED + 1))
+                fi
+            fi
+        done
+    }
+    
+    # Start the sync from the determined base directory
+    sync_directory "$shadow_base_dir" ""
+    
+done < "$SHADOWFILE"
+
+echo
+echo "Checking for orphaned shadow symlinks..."
+
+# Find symlinks that point to paths no longer in shadow repos
+while IFS= read -r -d '' symlink; do
+    target=$(readlink "$symlink" || true)
+    
+    # For relative symlinks, resolve the full path
+    if [ -n "$target" ]; then
+        if [[ "$target" == /* ]]; then
+            # Absolute path
+            resolved_target="$target"
+        else
+            # Relative path - resolve it
+            symlink_dir=$(dirname "$symlink")
+            resolved_target=$(cd "$symlink_dir" 2>/dev/null && realpath -m "$target" 2>/dev/null) || true
+        fi
+        
+        # Check if the target exists
+        if [ -n "$resolved_target" ] && [ ! -e "$resolved_target" ]; then
+            rel_path="${symlink#$REPO_ROOT/}"
+            echo -e "  ${YELLOW}Removing broken symlink: $rel_path${NC}"
+            rm "$symlink"
+            LINK_REMOVED=$((LINK_REMOVED + 1))
+        fi
+    fi
+done < <(find "$REPO_ROOT" -type l -print0 2>/dev/null | grep -zv "^$REPO_ROOT/\.git")
+
+echo
+echo -e "${GREEN}Shadow Sync Complete${NC}"
+echo
+echo "Summary:"
+echo "  Shadow repositories: $SHADOW_COUNT"
+echo "  Symlinks created: $LINK_CREATED"
+echo "  Symlinks existing: $LINK_EXISTS"
+echo "  Broken symlinks removed: $LINK_REMOVED"
+
+# Run exclude sync
+echo
+echo "Updating git excludes..."
+"$SCRIPT_DIR/shadow-sync-excludes"

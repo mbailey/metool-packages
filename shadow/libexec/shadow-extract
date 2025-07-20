@@ -1,0 +1,225 @@
+#!/usr/bin/env bash
+set -o nounset -o pipefail -o errexit
+# shadow-extract.sh - Extract file or directory to shadow repo and replace with symlink
+
+# Colors for output (with NO_COLOR support)
+if [ -n "${NO_COLOR:-}" ]; then
+    RED=''
+    GREEN=''
+    YELLOW=''
+    BLUE=''
+    NC=''
+else
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    BLUE='\033[0;34m'
+    NC='\033[0m' # No Color
+fi
+
+# Check arguments
+if [ $# -lt 1 ]; then
+    echo "Usage: $0 <file-or-directory> [shadow-repo-path]"
+    echo
+    echo "Extracts a file or directory to a shadow repository and replaces it with a symlink."
+    echo "If shadow-repo-path is not provided, uses the first entry in .shadowfile"
+    exit 1
+fi
+
+SOURCE_PATH="$1"
+SHADOW_REPO="${2:-}"
+
+# Get absolute path to script, even when called via symlink
+command -v realpath &> /dev/null || {
+    echo "Error: 'realpath' is required but not found. Please install 'coreutils' (e.g. 'brew install coreutils' on macOS)." >&2
+    exit 1
+}
+SCRIPT_PATH="$(realpath "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
+
+# Get absolute path of source
+SOURCE_ABS=$(realpath "$SOURCE_PATH" 2>/dev/null) || {
+    echo -e "${RED}Error: Path does not exist: $SOURCE_PATH${NC}"
+    exit 1
+}
+
+# Get repo root
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
+    echo -e "${RED}Error: Not in a git repository${NC}"
+    exit 1
+}
+
+# Get repo name for multi-repo shadows
+REPO_NAME=$(basename "$REPO_ROOT")
+
+# Check if source is within repo
+if [[ ! "$SOURCE_ABS" == "$REPO_ROOT"* ]]; then
+    echo -e "${RED}Error: Path is outside the repository: $SOURCE_PATH${NC}"
+    exit 1
+fi
+
+# Get relative path from repo root
+REL_PATH="${SOURCE_ABS#$REPO_ROOT/}"
+
+echo -e "${BLUE}Shadow Extract${NC}"
+echo -e "Source: ${GREEN}$REL_PATH${NC}"
+
+# If no shadow repo specified, check for multi-repo shadow opportunity
+if [ -z "$SHADOW_REPO" ]; then
+    # Check if extracting a directory
+    if [ -d "$SOURCE_ABS" ]; then
+        # Get basename of the directory being extracted
+        DIR_BASENAME=$(basename "$SOURCE_ABS")
+        POTENTIAL_MULTI_SHADOW="shadow-$DIR_BASENAME"
+        PARENT_DIR=$(dirname "$REPO_ROOT")
+        
+        # Check if shadow-<dirname> exists or could be created
+        if [ -d "$PARENT_DIR/$POTENTIAL_MULTI_SHADOW" ] || [[ "$DIR_BASENAME" == "tasks" ]]; then
+            echo
+            if [ -d "$PARENT_DIR/$POTENTIAL_MULTI_SHADOW" ]; then
+                echo -e "${YELLOW}Found multi-repo shadow: $POTENTIAL_MULTI_SHADOW${NC}"
+            else
+                echo -e "${YELLOW}Directory '$DIR_BASENAME' could use a multi-repo shadow${NC}"
+            fi
+            echo
+            echo "Would you like to use the multi-repo shadow?"
+            echo -e "  ${BLUE}$PARENT_DIR/$POTENTIAL_MULTI_SHADOW${NC}"
+            echo
+            read -p "Use this shadow repository? [Y/n] " -n 1 -r
+            echo
+            
+            if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
+                SHADOW_REPO="../$POTENTIAL_MULTI_SHADOW"
+                
+                # Create if it doesn't exist
+                if [ ! -d "$PARENT_DIR/$POTENTIAL_MULTI_SHADOW" ]; then
+                    echo -e "${GREEN}Creating multi-repo shadow: $POTENTIAL_MULTI_SHADOW${NC}"
+                    mkdir -p "$PARENT_DIR/$POTENTIAL_MULTI_SHADOW"
+                    (
+                        cd "$PARENT_DIR/$POTENTIAL_MULTI_SHADOW"
+                        git init
+                        git config user.email "shadow@example.com"
+                        git config user.name "Shadow"
+                        echo "# Multi-Repository Shadow: $DIR_BASENAME" > README.md
+                        echo "" >> README.md
+                        echo "This shadow repository contains $DIR_BASENAME content for multiple projects." >> README.md
+                        git add README.md
+                        git commit -m "Initial multi-repo shadow for $DIR_BASENAME"
+                    )
+                fi
+                
+                # Add to shadowfile if not already there
+                if [ -f "$REPO_ROOT/.shadowfile" ]; then
+                    if ! grep -q "^$SHADOW_REPO$" "$REPO_ROOT/.shadowfile" 2>/dev/null; then
+                        echo -e "${GREEN}Adding to .shadowfile${NC}"
+                        echo "$SHADOW_REPO" >> "$REPO_ROOT/.shadowfile"
+                    fi
+                else
+                    echo -e "${GREEN}Creating .shadowfile${NC}"
+                    echo "# Shadow repositories for $(basename "$REPO_ROOT")" > "$REPO_ROOT/.shadowfile"
+                    echo "$SHADOW_REPO" >> "$REPO_ROOT/.shadowfile"
+                fi
+            fi
+        fi
+    fi
+    
+    # If still no shadow repo, try .shadowfile
+    if [ -z "$SHADOW_REPO" ] && [ -f "$REPO_ROOT/.shadowfile" ]; then
+        # Get first non-comment, non-empty line from .shadowfile
+        SHADOW_REPO=$(grep -v '^#' "$REPO_ROOT/.shadowfile" | grep -v '^$' | head -1) || true
+    fi
+    
+    if [ -z "$SHADOW_REPO" ]; then
+        echo -e "${RED}Error: No shadow repository specified and no .shadowfile found${NC}"
+        echo "Please specify a shadow repository path or create .shadowfile"
+        exit 1
+    fi
+fi
+
+# Convert to absolute path
+if [[ "$SHADOW_REPO" == /* ]]; then
+    SHADOW_ABS="$SHADOW_REPO"
+else
+    SHADOW_ABS="$REPO_ROOT/$SHADOW_REPO"
+fi
+
+# Normalize path
+SHADOW_ABS=$(realpath -m "$SHADOW_ABS")
+
+echo -e "Shadow: ${BLUE}$SHADOW_ABS${NC}"
+
+# Create shadow directory if it doesn't exist
+if [ ! -d "$SHADOW_ABS" ]; then
+    echo -e "${YELLOW}Creating shadow directory...${NC}"
+    mkdir -p "$SHADOW_ABS"
+fi
+
+# Determine shadow type and calculate target path
+SHADOW_BASENAME=$(basename "$SHADOW_ABS")
+if [[ "$SHADOW_BASENAME" =~ ^shadow- ]]; then
+    echo -e "${BLUE}Shadow type: Multi-repo${NC}"
+    # For multi-repo shadows, include repo name in path
+    TARGET_PATH="$SHADOW_ABS/$REPO_NAME/$REL_PATH"
+    
+    # Create repo subdirectory if needed
+    if [ ! -d "$SHADOW_ABS/$REPO_NAME" ]; then
+        echo "Creating repository subdirectory: $REPO_NAME"
+        mkdir -p "$SHADOW_ABS/$REPO_NAME"
+    fi
+else
+    echo -e "${BLUE}Shadow type: Single-repo${NC}"
+    # For single-repo shadows, use direct path
+    TARGET_PATH="$SHADOW_ABS/$REL_PATH"
+fi
+
+TARGET_DIR=$(dirname "$TARGET_PATH")
+
+# Check if target already exists
+if [ -e "$TARGET_PATH" ]; then
+    echo -e "${RED}Error: Target already exists in shadow: $REL_PATH${NC}"
+    echo "Please resolve the conflict manually"
+    exit 1
+fi
+
+# Check if source is already a symlink
+if [ -L "$SOURCE_ABS" ]; then
+    echo -e "${YELLOW}Warning: Source is already a symlink${NC}"
+    LINK_TARGET=$(readlink "$SOURCE_ABS")
+    echo "Points to: $LINK_TARGET"
+    read -p "Continue anyway? [y/N] " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        exit 1
+    fi
+fi
+
+# Create target directory structure
+echo "Creating directory structure in shadow..."
+mkdir -p "$TARGET_DIR"
+
+# Move the file/directory to shadow
+echo "Moving to shadow repository..."
+mv "$SOURCE_ABS" "$TARGET_PATH"
+
+# Create symlink back to original location
+echo "Creating symlink..."
+ln -s "$TARGET_PATH" "$SOURCE_ABS"
+
+# Note: .git/info/exclude is managed by shadow-sync-excludes
+# We don't update it here to avoid duplicates
+
+echo
+echo -e "${GREEN}✓ Successfully extracted to shadow!${NC}"
+echo
+echo "Summary:"
+echo "  - Moved: $REL_PATH"
+if [[ "$SHADOW_BASENAME" =~ ^shadow- ]]; then
+    echo "  - To: $SHADOW_ABS/$REPO_NAME/$REL_PATH"
+else
+    echo "  - To: $SHADOW_ABS/$REL_PATH"
+fi
+echo "  - Symlink created at original location"
+echo
+echo "Next steps:"
+echo "  1. Commit changes in shadow repository"
+echo "  2. Run 'shadow sync-excludes' to update git excludes"
