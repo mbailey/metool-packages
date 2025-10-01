@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Install packages for current operating system
+set -o nounset -o pipefail -o errexit
+
+# Get absolute path to script directory
+command -v realpath &> /dev/null || {
+    echo "Error: 'realpath' is required but not found. Please install 'coreutils' (e.g. 'brew install coreutils' on macOS)." >&2
+    exit 1
+}
+SCRIPT_PATH="$(realpath "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
+LIBEXEC_DIR="$(dirname "$SCRIPT_DIR")"
+PACKAGE_DIR="$(dirname "$LIBEXEC_DIR")"
+
+# Show help if requested
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    cat << 'EOF'
+Usage: packages install [PACKAGE...]
+
+Install packages from package list for current operating system.
+If additional package names are provided, install those as well.
+
+By OS:
+  Fedora: sudo dnf install (with --setopt=strict=0 to skip missing)
+  Ubuntu: sudo apt install
+  macOS:  brew install
+
+Exit codes:
+  0 - Success
+  1 - Error or unsupported OS
+EOF
+    exit 0
+fi
+
+OS_ID=$("$PACKAGE_DIR/bin/os-id")
+PACKAGES_LIST=$("$SCRIPT_DIR/list")
+
+case "$OS_ID" in
+    fedora)
+        sudo dnf install --setopt=strict=0 $PACKAGES_LIST "$@" # Do not fail on missing packages
+        ;;
+    ubuntu)
+        sudo apt install $PACKAGES_LIST "$@"
+        ;;
+    macos)
+        brew install $PACKAGES_LIST "$@"
+        ;;
+    *)
+        echo "Error: Unsupported OS: $OS_ID" >&2
+        exit 1
+        ;;
+esac

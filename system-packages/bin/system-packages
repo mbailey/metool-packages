@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# system-packages - Cross-platform package management for workstations
+set -o nounset -o pipefail
+
+# Get absolute path to script, even when called via symlink
+command -v realpath &> /dev/null || {
+    echo "Error: 'realpath' is required but not found. Please install 'coreutils' (e.g. 'brew install coreutils' on macOS)." >&2
+    exit 1
+}
+SCRIPT_PATH="$(realpath "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
+PACKAGE_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Export package directory for subcommands
+export SYSTEM_PACKAGES_PACKAGE_DIR="$PACKAGE_DIR"
+export MT_CONFIG_DIR="${MT_CONFIG_DIR:-${HOME}/.config/metool}"
+
+show_help() {
+    cat << EOF
+system-packages - Cross-platform package management for workstations
+
+USAGE:
+    system-packages <SUBCOMMAND> [OPTIONS]
+
+SUBCOMMANDS:
+    list              List packages from package list (default)
+    diff              Show differences between list and installed
+    install           Install packages from package list
+    save              Save currently installed packages to list
+    user-installed    List user-installed packages
+    edit              Edit package list for current OS
+    upgrade           Upgrade all packages
+    completion        Generate shell completion scripts
+
+GLOBAL OPTIONS:
+    -h, --help      Show help information
+    -v, --version   Show version information
+
+PACKAGE LISTS:
+    macOS:    ~/.config/metool/packages/homebrew-packages.txt
+    Ubuntu:   ~/.config/metool/packages/ubuntu-packages.txt
+    Fedora:   ~/.config/metool/packages/fedora-packages.txt
+
+EXAMPLES:
+    system-packages                    # List packages
+    system-packages diff               # Show what's missing or extra
+    system-packages install            # Install all packages from list
+    system-packages save               # Save current packages to list
+    system-packages edit               # Edit package list
+    system-packages upgrade            # Upgrade all packages
+
+For help with a specific command:
+    system-packages <command> --help
+
+EOF
+}
+
+# Check if libexec directory exists
+LIBEXEC_DIR="$PACKAGE_DIR/libexec/system-packages"
+if [[ ! -d "$LIBEXEC_DIR" ]]; then
+    echo "Error: libexec directory not found: $LIBEXEC_DIR" >&2
+    exit 1
+fi
+
+# Parse global options
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        -v|--version)
+            echo "system-packages version 1.0.0"
+            exit 0
+            ;;
+        -*)
+            echo "Unknown option: $1" >&2
+            show_help
+            exit 1
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+# Get subcommand (default to list)
+SUBCOMMAND="${1:-list}"
+shift 2>/dev/null || true
+
+# Execute subcommand
+SUBCOMMAND_PATH="$LIBEXEC_DIR/$SUBCOMMAND"
+
+if [[ -x "$SUBCOMMAND_PATH" ]]; then
+    exec "$SUBCOMMAND_PATH" "$@"
+else
+    echo "Error: Unknown subcommand '$SUBCOMMAND'" >&2
+    echo "" >&2
+    show_help
+    exit 1
+fi

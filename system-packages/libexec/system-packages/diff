@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Show difference between expected and installed packages
+set -o nounset -o pipefail -o errexit
+
+# Get absolute path to script directory
+command -v realpath &> /dev/null || {
+    echo "Error: 'realpath' is required but not found. Please install 'coreutils' (e.g. 'brew install coreutils' on macOS)." >&2
+    exit 1
+}
+SCRIPT_PATH="$(realpath "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
+
+# Show help if requested
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    cat << 'EOF'
+Usage: packages diff
+
+Show differences between package list and installed packages.
+
+Output format:
+  < package-name   Package in list but not installed
+  > package-name   Package installed but not in list
+
+Exit codes:
+  0 - No differences
+  1 - Differences found or error
+EOF
+    exit 0
+fi
+
+diff <("$SCRIPT_DIR/list" | sort) <("$SCRIPT_DIR/user-installed" | sort)

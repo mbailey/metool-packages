@@ -1,0 +1,240 @@
+#!/usr/bin/env bash
+
+# Unified appearance (light/dark mode) manager for macOS, Linux, and WSL
+# Usage:
+#   appearance          # Show current setting
+#   appearance light    # Set light mode
+#   appearance dark     # Set dark mode
+#   appearance auto     # Set auto mode (where supported)
+
+set -euo pipefail
+
+# Detect operating system
+detect_os() {
+    case "$(uname -s)" in
+        Darwin) echo "macos" ;;
+        Linux)
+            if grep -qi microsoft /proc/version 2>/dev/null; then
+                echo "wsl"
+            else
+                echo "linux"
+            fi
+            ;;
+        *) echo "unknown" ;;
+    esac
+}
+
+# Get current appearance on macOS
+get_macos_appearance() {
+    local interface_style=$(defaults read -g AppleInterfaceStyle 2>/dev/null || echo "Light")
+    local auto_switch=$(defaults read -g AppleInterfaceStyleSwitchesAutomatically 2>/dev/null || echo "0")
+
+    if [[ "$auto_switch" == "1" ]] || [[ "$auto_switch" == "true" ]]; then
+        if [[ "$interface_style" == "Dark" ]]; then
+            echo "auto (currently dark)"
+        else
+            echo "auto (currently light)"
+        fi
+    else
+        if [[ "$interface_style" == "Dark" ]]; then
+            echo "dark"
+        else
+            echo "light"
+        fi
+    fi
+}
+
+# Set appearance on macOS
+set_macos_appearance() {
+    local mode="$1"
+    case "$mode" in
+        light)
+            defaults delete -g AppleInterfaceStyle 2>/dev/null || true
+            defaults write -g AppleInterfaceStyleSwitchesAutomatically -bool false
+            echo "Set macOS to light mode"
+            ;;
+        dark)
+            defaults write -g AppleInterfaceStyle Dark
+            defaults write -g AppleInterfaceStyleSwitchesAutomatically -bool false
+            echo "Set macOS to dark mode"
+            ;;
+        auto)
+            defaults write -g AppleInterfaceStyleSwitchesAutomatically -bool true
+            echo "Set macOS to auto mode"
+            ;;
+        *)
+            echo "Invalid mode: $mode" >&2
+            return 1
+            ;;
+    esac
+}
+
+# Get current appearance on Linux
+get_linux_appearance() {
+    # Try GNOME/GTK first
+    if command -v gsettings &>/dev/null; then
+        local color_scheme=$(gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null | tr -d "'")
+        case "$color_scheme" in
+            prefer-dark) echo "dark" ;;
+            prefer-light) echo "light" ;;
+            default|"")
+                # Check gtk-theme as fallback
+                local gtk_theme=$(gsettings get org.gnome.desktop.interface gtk-theme 2>/dev/null | tr -d "'")
+                if [[ "$gtk_theme" == *"-dark"* ]] || [[ "$gtk_theme" == *"Dark"* ]]; then
+                    echo "dark"
+                elif [[ "$gtk_theme" == *"-light"* ]] || [[ "$gtk_theme" == *"Light"* ]]; then
+                    echo "light"
+                else
+                    echo "unknown"
+                fi
+                ;;
+            *) echo "unknown" ;;
+        esac
+    # Try KDE Plasma
+    elif command -v kreadconfig5 &>/dev/null; then
+        local kde_theme=$(kreadconfig5 --file kdeglobals --group General --key ColorScheme 2>/dev/null)
+        if [[ "$kde_theme" == *"Dark"* ]]; then
+            echo "dark"
+        elif [[ "$kde_theme" == *"Light"* ]]; then
+            echo "light"
+        else
+            echo "unknown"
+        fi
+    else
+        echo "unknown"
+    fi
+}
+
+# Set appearance on Linux
+set_linux_appearance() {
+    local mode="$1"
+
+    # GNOME/GTK
+    if command -v gsettings &>/dev/null; then
+        case "$mode" in
+            light)
+                gsettings set org.gnome.desktop.interface color-scheme 'prefer-light'
+                # Also try to set a light GTK theme if available
+                local current_theme=$(gsettings get org.gnome.desktop.interface gtk-theme | tr -d "'")
+                if [[ "$current_theme" == *"-dark"* ]]; then
+                    local light_theme="${current_theme%-dark}"
+                    gsettings set org.gnome.desktop.interface gtk-theme "$light_theme"
+                fi
+                echo "Set GNOME/GTK to light mode"
+                ;;
+            dark)
+                gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark'
+                # Also try to set a dark GTK theme if available
+                local current_theme=$(gsettings get org.gnome.desktop.interface gtk-theme | tr -d "'")
+                if [[ "$current_theme" != *"-dark"* ]]; then
+                    gsettings set org.gnome.desktop.interface gtk-theme "${current_theme}-dark"
+                fi
+                echo "Set GNOME/GTK to dark mode"
+                ;;
+            auto)
+                echo "Auto mode not supported on Linux (GNOME/GTK)" >&2
+                return 1
+                ;;
+            *)
+                echo "Invalid mode: $mode" >&2
+                return 1
+                ;;
+        esac
+    # KDE Plasma (setting requires more complex handling)
+    elif command -v kwriteconfig5 &>/dev/null; then
+        echo "KDE Plasma theme setting requires manual configuration" >&2
+        echo "Please use System Settings → Appearance → Global Theme" >&2
+        return 1
+    else
+        echo "No supported desktop environment found" >&2
+        return 1
+    fi
+}
+
+# Get current appearance on WSL
+get_wsl_appearance() {
+    if command -v powershell.exe &>/dev/null; then
+        local win_theme=$(powershell.exe -Command '
+            $path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+            $light = Get-ItemProperty -Path $path -Name "AppsUseLightTheme" -ErrorAction SilentlyContinue
+            if ($light.AppsUseLightTheme -eq 1) { "light" } else { "dark" }
+        ' 2>/dev/null | tr -d '\r\n')
+
+        # Check if auto dark mode is running (if we can detect it)
+        local auto_mode=$(powershell.exe -Command '
+            Get-Process -Name "AutoDarkMode*" -ErrorAction SilentlyContinue | Select-Object -First 1
+        ' 2>/dev/null)
+
+        if [[ -n "$auto_mode" ]]; then
+            echo "auto (currently $win_theme)"
+        else
+            echo "$win_theme"
+        fi
+    else
+        echo "unknown (PowerShell not available)"
+    fi
+}
+
+# Set appearance on WSL (through Windows)
+set_wsl_appearance() {
+    local mode="$1"
+
+    if ! command -v powershell.exe &>/dev/null; then
+        echo "PowerShell not available in WSL" >&2
+        return 1
+    fi
+
+    case "$mode" in
+        light)
+            powershell.exe -Command '
+                $path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+                Set-ItemProperty -Path $path -Name "AppsUseLightTheme" -Value 1
+                Set-ItemProperty -Path $path -Name "SystemUsesLightTheme" -Value 1
+            ' 2>/dev/null
+            echo "Set Windows to light mode"
+            ;;
+        dark)
+            powershell.exe -Command '
+                $path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+                Set-ItemProperty -Path $path -Name "AppsUseLightTheme" -Value 0
+                Set-ItemProperty -Path $path -Name "SystemUsesLightTheme" -Value 0
+            ' 2>/dev/null
+            echo "Set Windows to dark mode"
+            ;;
+        auto)
+            echo "Auto mode requires Windows Auto Dark Mode app" >&2
+            echo "Install from: https://github.com/AutoDarkMode/Windows-Auto-Night-Mode" >&2
+            return 1
+            ;;
+        *)
+            echo "Invalid mode: $mode" >&2
+            return 1
+            ;;
+    esac
+}
+
+# Main function
+main() {
+    local os=$(detect_os)
+
+    if [[ $# -eq 0 ]]; then
+        # Show current appearance
+        case "$os" in
+            macos) get_macos_appearance ;;
+            linux) get_linux_appearance ;;
+            wsl) get_wsl_appearance ;;
+            *) echo "Unsupported OS: $os" >&2; exit 1 ;;
+        esac
+    else
+        # Set appearance
+        local mode="$1"
+        case "$os" in
+            macos) set_macos_appearance "$mode" ;;
+            linux) set_linux_appearance "$mode" ;;
+            wsl) set_wsl_appearance "$mode" ;;
+            *) echo "Unsupported OS: $os" >&2; exit 1 ;;
+        esac
+    fi
+}
+
+main "$@"

@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -o nounset -o pipefail -o errexit
+
+# Detect operating system ID
+# Dependencies: None
+
+os_id() {
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        if [[ -f /etc/os-release ]]; then
+            . /etc/os-release
+            case $ID in
+                ubuntu)
+                    echo "ubuntu"
+                    ;;
+                fedora)
+                    echo "fedora"
+                    ;;
+                *)
+                    echo "Unsupported Linux distribution"
+                    ;;
+            esac
+        else
+            echo "Unsupported Linux distribution"
+        fi
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        echo "macos"
+    else
+        echo "Unknown OS"
+    fi
+}
+
+# Show help if requested
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    cat << 'EOF'
+Usage: os-id
+
+Detect the operating system ID.
+
+Returns:
+  ubuntu  - Ubuntu Linux
+  fedora  - Fedora Linux
+  macos   - macOS
+  Unknown OS - Unsupported operating system
+
+Exit codes:
+  0 - Success
+EOF
+    exit 0
+fi
+
+os_id "$@"

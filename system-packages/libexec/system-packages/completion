@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Generate shell completion scripts
+set -o nounset -o pipefail
+
+SCRIPT_PATH="$(realpath "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
+LIBEXEC_DIR="$(dirname "$SCRIPT_DIR")"
+PACKAGE_DIR="$(dirname "$LIBEXEC_DIR")"
+
+SHELL_TYPE="${1:-bash}"
+COMPLETIONS_DIR="${PACKAGE_DIR}/shell/completions"
+
+case "$SHELL_TYPE" in
+    bash)
+        if [[ -f "$COMPLETIONS_DIR/system-packages.bash" ]]; then
+            cat "$COMPLETIONS_DIR/system-packages.bash"
+        else
+            echo "Error: Bash completion file not found" >&2
+            exit 1
+        fi
+        ;;
+    zsh)
+        echo "# Zsh completion not yet implemented"
+        echo "# You can use bashcompinit for now:"
+        echo "# autoload -U +X bashcompinit && bashcompinit"
+        echo "# source <(system-packages completion bash)"
+        ;;
+    fish)
+        echo "# Fish completion not yet implemented"
+        ;;
+    -h|--help)
+        cat << EOF
+Usage: system-packages completion [SHELL]
+
+Generate shell completion script for system-packages command.
+
+Supported shells:
+    bash    Bash completion (default)
+    zsh     Zsh completion (uses bashcompinit)
+    fish    Fish completion (not yet implemented)
+
+Installation:
+    # For bash - add to ~/.bashrc:
+    source <(system-packages completion bash)
+
+    # Or save to completions directory:
+    system-packages completion bash > ~/.bash_completion.d/system-packages
+EOF
+        ;;
+    *)
+        echo "Error: Unknown shell type '$SHELL_TYPE'" >&2
+        echo "Supported shells: bash, zsh, fish" >&2
+        exit 1
+        ;;
+esac

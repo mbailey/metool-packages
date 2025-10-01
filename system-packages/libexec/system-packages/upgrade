@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Upgrade packages for current operating system
+set -o nounset -o pipefail -o errexit
+
+# Get absolute path to script directory
+command -v realpath &> /dev/null || {
+    echo "Error: 'realpath' is required but not found. Please install 'coreutils' (e.g. 'brew install coreutils' on macOS)." >&2
+    exit 1
+}
+SCRIPT_PATH="$(realpath "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
+LIBEXEC_DIR="$(dirname "$SCRIPT_DIR")"
+PACKAGE_DIR="$(dirname "$LIBEXEC_DIR")"
+
+# Show help if requested
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    cat << 'EOF'
+Usage: packages upgrade
+
+Upgrade all packages on current operating system.
+
+By OS:
+  Fedora: sudo dnf upgrade
+  Ubuntu: sudo apt update && sudo apt upgrade
+  macOS:  brew update && brew upgrade
+
+Exit codes:
+  0 - Success
+  1 - Error or unsupported OS
+EOF
+    exit 0
+fi
+
+OS_ID=$("$PACKAGE_DIR/bin/os-id")
+
+case "$OS_ID" in
+    fedora)
+        sudo dnf upgrade
+        ;;
+    ubuntu)
+        sudo apt update && sudo apt upgrade
+        ;;
+    macos)
+        brew update && brew upgrade
+        ;;
+    *)
+        echo "Error: Unsupported OS: $OS_ID" >&2
+        exit 1
+        ;;
+esac

@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# List packages for current operating system
+set -o nounset -o pipefail -o errexit
+
+# Get absolute path to script directory
+command -v realpath &> /dev/null || {
+    echo "Error: 'realpath' is required but not found. Please install 'coreutils' (e.g. 'brew install coreutils' on macOS)." >&2
+    exit 1
+}
+SCRIPT_PATH="$(realpath "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
+LIBEXEC_DIR="$(dirname "$SCRIPT_DIR")"
+PACKAGE_DIR="$(dirname "$LIBEXEC_DIR")"
+
+: ${MT_CONFIG_DIR:="${HOME}/.config/metool"}
+
+# Show help if requested
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    cat << 'EOF'
+Usage: packages list
+
+List packages from the package list for current operating system.
+
+Package lists are stored in:
+  macOS:  ~/.config/metool/packages/homebrew-packages.txt
+  Ubuntu: ~/.config/metool/packages/ubuntu-packages.txt
+  Fedora: ~/.config/metool/packages/fedora-packages.txt
+
+Exit codes:
+  0 - Success
+  1 - Error (missing package list or os-id command)
+EOF
+    exit 0
+fi
+
+# Use os-id from bin directory
+OS_ID=$("$PACKAGE_DIR/bin/os-id")
+PACKAGE_LIST_PATH="${MT_CONFIG_DIR}/packages/${OS_ID}-packages.txt"
+
+if [[ "$OS_ID" == "macos" ]]; then
+    PACKAGE_LIST_PATH="${MT_CONFIG_DIR}/packages/homebrew-packages.txt"
+fi
+
+if [[ ! -f "$PACKAGE_LIST_PATH" ]]; then
+    echo "Error: Package list not found at $PACKAGE_LIST_PATH" >&2
+    exit 1
+fi
+
+grep -v "^#" "$PACKAGE_LIST_PATH"

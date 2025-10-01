@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Save currently installed packages to package list
+set -o nounset -o pipefail -o errexit
+
+# Get absolute path to script directory
+command -v realpath &> /dev/null || {
+    echo "Error: 'realpath' is required but not found. Please install 'coreutils' (e.g. 'brew install coreutils' on macOS)." >&2
+    exit 1
+}
+SCRIPT_PATH="$(realpath "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
+LIBEXEC_DIR="$(dirname "$SCRIPT_DIR")"
+PACKAGE_DIR="$(dirname "$LIBEXEC_DIR")"
+
+: ${MT_CONFIG_DIR:="${HOME}/.config/metool"}
+
+# Show help if requested
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    cat << 'EOF'
+Usage: packages save
+
+Save currently installed packages to package list.
+
+WARNING: This replaces the package list file with current installed packages.
+         Review the changes before committing to version control.
+
+Package lists are saved to:
+  macOS:  ~/.config/metool/packages/homebrew-packages.txt
+  Ubuntu: ~/.config/metool/packages/ubuntu-packages.txt
+  Fedora: ~/.config/metool/packages/fedora-packages.txt
+
+Exit codes:
+  0 - Success
+  1 - Error or unsupported OS
+EOF
+    exit 0
+fi
+
+OS_ID=$("$PACKAGE_DIR/bin/os-id")
+PACKAGE_LIST_PATH="${MT_CONFIG_DIR}/packages/${OS_ID}-packages.txt"
+
+if [[ "$OS_ID" == "macos" ]]; then
+    PACKAGE_LIST_PATH="${MT_CONFIG_DIR}/packages/homebrew-packages.txt"
+fi
+
+# Create directory if it doesn't exist
+mkdir -p "$(dirname "$PACKAGE_LIST_PATH")"
+
+"$SCRIPT_DIR/user-installed" > "$PACKAGE_LIST_PATH"
+echo "Saved package list to: $PACKAGE_LIST_PATH"
