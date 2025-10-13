@@ -1,0 +1,172 @@
+# Prompt
+
+
+colorize_word() {
+  local word="$1"
+  local salt="$2"
+
+  [[ -z $word ]] && return 0
+
+  local sum=0
+  for (( i=0; i<${#word}; i++ )); do
+    char="${word:$i:1}"
+    ascii_val=$(printf '%d' "'$char")
+    sum=$((sum + ascii_val * (i + 1)))
+  done
+  for (( i=0; i<${#salt}; i++ )); do
+    char="${salt:$i:1}"
+    ascii_val=$(printf '%d' "'$char")
+    sum=$((sum + ascii_val))
+  done
+
+  local mode=""
+  if command -v gsettings &> /dev/null; then
+    if gsettings list-schemas &> /dev/null; then
+    	mode=$(gsettings get org.gnome.desktop.interface gtk-theme)
+    fi
+  fi
+  local palette
+  if [[ "$mode" == *'dark'* ]]; then
+    palette=("124" "160" "196" "202" "208" "214")
+  else
+    palette=("22" "28" "34" "40" "46" "52")
+  fi
+
+  local color_code="38;5;${palette[$((sum % ${#palette[@]}))]}"
+
+  echo -e "\[\033[${color_code}m\]${word}\[\033[00m\]"
+}
+
+git-ps1-quiet() {
+  local xtrace_state=$(shopt -qo xtrace && echo 'on')
+  set +x
+  __git_ps1 "%s"
+  [[ "$xtrace_state" == 'on' ]] && set -x
+}
+
+git-stash-info() {
+    local stash_info=""
+    local inside_git_repo=$(git rev-parse --is-inside-work-tree 2>/dev/null)
+
+    if [[ $inside_git_repo == "true" ]]; then
+        local stash_count=$(git stash list | wc -l)
+        local last_stash_date=""
+
+        if [[ $stash_count -gt 0 ]]; then
+            last_stash_date=$(git stash list --pretty=format:"%cr" | head -n 1)
+            stash_info="stash:$stash_count $last_stash_date"
+        fi
+    fi
+
+    echo "$stash_info"
+}
+
+prompt-aws() {
+    if [[ -z "$1" ]]; then
+        echo "${MT_PROMPT_AWS:-'MT_PROMPT_AWS not set'}";
+    else
+        export MT_PROMPT_AWS="$1";
+    fi
+}
+
+prompt-aws-toggle() {
+    if [[ $MT_PROMPT_AWS != "true" ]]; then
+        export MT_PROMPT_AWS="true"
+    else
+        export MT_PROMPT_AWS="false"
+    fi
+    echo "${MT_PROMPT_AWS:-'MT_PROMPT_AWS not set'}"
+}
+
+prompt-azure() {
+    if [[ -z "$1" ]]; then
+        echo "${MT_PROMPT_AZURE:-'MT_PROMPT_AZURE not set'}";
+    else
+        export MT_PROMPT_AZURE="$1";
+    fi
+}
+
+prompt-azure-toggle() {
+    if [[ $MT_PROMPT_AZURE != "true" ]]; then
+        export MT_PROMPT_AZURE="true";
+    else
+        export MT_PROMPT_AZURE="false";
+    fi
+    echo "${MT_PROMPT_AZURE:-'MT_PROMPT_AZURE not set'}";
+}
+
+set_prompt() {
+  local salt=""
+  local user=$(whoami)
+  local host=$(hostname)
+
+  # Get current AWS Account and Region
+  : ${MT_PROMPT_AWS:=true}
+  if [[ $MT_PROMPT_AWS =~ ^[Yy1Tt] ]]; then
+    local aws_profile="${AWS_VAULT:-${AWS_PROFILE:-}}"
+    local aws_region=$([[ -n $aws_profile ]] && echo "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}")
+    if [[ -n $aws_profile ]]; then 
+      local aws_details="[${aws_profile:+$(colorize_word ${aws_profile/-admin} $salt) }${aws_region:+$(colorize_word ${aws_region} $salt)}]"
+    fi
+  fi
+
+  # Get current Azure Subscription and Resource Group
+  : ${MT_PROMPT_AZURE:=true}
+  if [[ $MT_PROMPT_AZURE =~ ^[Yy1Tt] ]]; then
+    if command -v az >/dev/null; then
+        local az_subscription="$(bma subscription)"
+        local az_resource_group="$(bma resource-group)"
+        local location="$(bma location)"
+
+        local az_details="[${az_subscription:+$(colorize_word ${az_subscription} $salt) }${az_resource_group:+$(colorize_word ${az_resource_group} $salt) }${location:+$(colorize_word ${location} $salt)}]"
+    fi
+  fi
+
+  local width=''
+  if [ "$COLUMNS" -lt 85 ]; then  # 85 accounts for line numbers in nvim
+    width="\[\033[41m\]W:$COLUMNS\[\033[0m\] "
+  fi
+
+  local git_ps1_quiet="$(git-ps1-quiet)"
+  local git_stash_info="$(git-stash-info)"
+  local git=" (${git_ps1_quiet}${git_stash_info:+ $git_stash_info})"
+
+  PS1="${width}$(colorize_word $user $salt)@$(colorize_word $host $salt) ${aws_details:+"${aws_details} "}${az_details:+"${az_details} "}\[\033[00m\]\W${git/ ()}\$ "
+
+}
+
+prompt(){
+  MT_PROMPT_AWS=true
+  MT_PROMPT_AZURE=false
+  PROMPT_COMMAND=set_prompt
+}
+# alias pp=prompt
+
+alias pl=prompt-long
+prompt-long(){
+  MT_PROMPT_AWS=true
+  MT_PROMPT_AZURE=true
+  PROMPT_COMMAND=set_prompt
+}
+alias pl=prompt-long
+
+prompt-short(){
+  # PROMPT_COMMAND="PS1='[\u@\h \W]\$ '"
+  MT_PROMPT_AWS=false
+  MT_PROMPT_AZURE=false
+}
+alias pz='prompt-short'
+
+prompt-shorter(){
+  PROMPT_COMMAND="PS1='[\W]\$ '"
+}
+
+alias psr=prompt-shorter
+
+prompt
+
+
+# How is this meant to work?
+# export PROMPT_COMMAND="history -a; history -c; history -r; $PROMPT_COMMAND"
+# PROMPT_COMMAND='history -a'   # Store history immediately
+# PROMPT_COMMAND="PS1=\"\$(update-prompt-with-stash-info)$PS1\""
