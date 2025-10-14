@@ -1,0 +1,48 @@
+# Ensure that these aliases also affect other scripts
+shopt -s expand_aliases
+
+# Navigation and listing
+alias l='ls -lrta'
+alias ll='ls -la'
+alias la='ls -A'
+alias lt='ls -lrt'
+
+# Common shortcuts
+alias p='ping 1.1.1.1'
+alias b="source ~/.bashrc"
+alias u='clear && grc uncommitted -L .'
+alias D='ls -lrta ~/Downloads/'
+
+# Disk usage - super useful for finding space hogs
+alias dm='du -sm -- * .[^.]* | sort -n'
+alias dk='du -sk * .[^.]* | sort -n'
+
+# Enhanced commands with better defaults
+alias grep='grep --color=auto --exclude-dir=.git'
+alias diff="diff --unified --exclude .git"
+alias tree='tree -a -l --gitignore -I ".pytest_cache|__pycache__|.obsidian*|venv|.git|.gitX|.git-*|node_modules"'
+
+# Text processing
+alias uncommented="grep -E '^[[:space:]]*[^[:space:]#]'"
+alias no-comment="sed '/^[[:space:]]*#/d'"
+alias no-blank-lines="sed '/^[[:space:]]*$/d'"
+alias sort-count='sort | uniq -c | sort -n'
+alias upcase='tr [:lower:] [:upper:]'
+alias first='head -1'
+
+# Timestamps
+alias ds=datestamp  # mt-public/time/bin/datestamp
+alias ts=timestamp  # mt-public/time/bin/timestamp
+
+# Network and system
+alias i='curl icanhazip.com'
+alias serve='python3 -m http.server'
+
+# File operations
+alias count='wc -l'
+
+# Editor
+alias vi=vim
+
+# Short prompt for presentations/screenshots
+alias pz='prompt-short'
