@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# log-command - Execute a command and save output to a timestamped log file
+#
+# Usage: log-command [-h|--here] command [args...]
+#
+# Examples:
+#   log-command make lambda-invoke
+#   log-command !!                    # Re-run previous command
+#   log-command -h aws s3 ls          # Save in current directory
+
+set -euo pipefail
+
+# Default log directory
+LOG_DIR="${HOME}/.logs"
+USE_CURRENT_DIR=false
+
+# Parse flags
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--here)
+      USE_CURRENT_DIR=true
+      shift
+      ;;
+    --help)
+      echo "Usage: log-command [-h|--here] command [args...]"
+      echo ""
+      echo "Execute a command and save output to a timestamped log file."
+      echo ""
+      echo "Options:"
+      echo "  -h, --here    Save log in current directory (default: ~/.logs)"
+      echo "  --help        Show this help message"
+      echo ""
+      echo "Examples:"
+      echo "  log-command make lambda-invoke"
+      echo "  log-command !!"
+      echo "  log-command -h aws s3 ls"
+      exit 0
+      ;;
+    -*)
+      echo "Unknown option: $1" >&2
+      echo "Usage: log-command [-h|--here] command [args...]" >&2
+      exit 1
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+# Check if command provided
+if [[ $# -eq 0 ]]; then
+  echo "Error: No command provided" >&2
+  echo "Usage: log-command [-h|--here] command [args...]" >&2
+  echo "" >&2
+  echo "Examples:" >&2
+  echo "  log-command make lambda-invoke" >&2
+  echo "  log-command !!" >&2
+  echo "  log-command -h aws s3 ls" >&2
+  exit 1
+fi
+
+# Determine log directory
+if [[ "$USE_CURRENT_DIR" == true ]]; then
+  LOG_DIR="."
+else
+  mkdir -p "$LOG_DIR"
+fi
+
+# Sanitize command for filename
+# Keep first 80 chars, replace special chars with dash, clean up multiple dashes
+CMD_STRING="$*"
+SANITIZED=$(echo "$CMD_STRING" | sed 's/[^a-zA-Z0-9_-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//' | cut -c1-80)
+
+# Generate timestamp - use datestamp if available, otherwise fall back to date
+if command -v datestamp >/dev/null 2>&1; then
+  TIMESTAMP=$(datestamp)
+else
+  TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+fi
+
+# Generate filename
+LOGFILE="${LOG_DIR}/${TIMESTAMP}-${SANITIZED}.log"
+
+# Execute command and tee to log file
+echo "Logging to: $LOGFILE" >&2
+"$@" 2>&1 | tee "$LOGFILE"
