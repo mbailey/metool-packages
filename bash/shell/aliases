@@ -10,6 +10,7 @@ alias lt='ls -lrt'
 # Common shortcuts
 alias p='ping 1.1.1.1'
 alias b="source ~/.bashrc"
+alias bashrc='${EDITOR:-vim} ~/.bashrc'
 alias u='clear && grc uncommitted -L .'
 alias D='ls -lrta ~/Downloads/'
 
