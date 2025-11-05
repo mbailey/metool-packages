@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Smart tmux session connection for Terminal startup
+# Attaches to 'main' session only if no other clients are attached
+# Otherwise starts a bare shell
+
+set -euo pipefail
+
+SESSION_NAME="${1:-main}"
+
+# If already in tmux, just run shell
+if [ -n "${TMUX:-}" ]; then
+  exec bash -l
+fi
+
+# Check if session exists
+if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+  # Count attached clients
+  attached_clients=$(tmux list-clients -t "$SESSION_NAME" 2>/dev/null | wc -l | tr -d ' ')
+
+  if [ "$attached_clients" -eq 0 ]; then
+    # No one attached, we can attach
+    exec tmux attach-session -t "$SESSION_NAME"
+  else
+    # Someone already attached, start bare shell
+    exec bash -l
+  fi
+else
+  # Session doesn't exist, create it
+  exec tmux new-session -s "$SESSION_NAME"
+fi
