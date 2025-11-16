@@ -1,4 +1,12 @@
 mbailey/bash-my-aws
+mbailey/bash-my-kvm
+mbailey/bash-my-spotify
+mbailey/ccusage
 mbailey/keycutter
+mbailey/markdownload
 mbailey/metool
+# mbailey/metool-packages # this repo
+mbailey/openai-proxy
+mbailey/promcom
+mbailey/push2type
 mbailey/voicemode
