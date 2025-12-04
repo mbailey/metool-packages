@@ -1,11 +1,14 @@
+# mbailey/metool-packages # this repo
 mbailey/bash-my-aws
 mbailey/bash-my-kvm
+mbailey/claude-code
 mbailey/keycutter
 mbailey/markdownload
 mbailey/metool
-# mbailey/metool-packages # this repo
 mbailey/openai-proxy
 mbailey/promcom
 mbailey/push2type
 mbailey/sqldown
 mbailey/voicemode
+
+github.com/anthropics/skills
