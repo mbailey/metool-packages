@@ -20,7 +20,11 @@ alias dk='du -sk * .[^.]* | sort -n'
 
 # Enhanced commands with better defaults
 alias grep='grep --color=auto --exclude-dir=.git'
-alias diff="diff --unified --exclude .git"
+if command -v colordiff &>/dev/null; then
+    alias diff="colordiff --unified --exclude .git"
+else
+    alias diff="diff --unified --exclude .git"
+fi
 alias tree='tree -a -l --gitignore -I ".pytest_cache|__pycache__|.obsidian*|venv|.git|.gitX|.git-*|node_modules"'
 
 # Text processing
