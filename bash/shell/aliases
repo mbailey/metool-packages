@@ -45,6 +45,7 @@ alias serve='python3 -m http.server'
 
 # File operations
 alias count='wc -l'
+alias dupes='md5sum * | sort | uniq -w 32 -D'
 
 # Editor
 alias vi=vim
