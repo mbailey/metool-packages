@@ -7,7 +7,7 @@ mbailey/metool
 mbailey/openai-proxy
 mbailey/promcom
 mbailey/push2type
-mbailey/show-and-tell
+mbailey/show-me
 mbailey/sqldown
 mbailey/voicemode
 
