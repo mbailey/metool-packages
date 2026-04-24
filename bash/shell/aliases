@@ -37,7 +37,7 @@ alias first='head -1'
 
 # Timestamps
 alias ds=datestamp  # mt-public/time/bin/datestamp
-alias ts=timestamp  # mt-public/time/bin/timestamp
+# alias ts=timestamp  # mt-public/time/bin/timestamp
 
 # Network and system
 alias i='curl icanhazip.com'
