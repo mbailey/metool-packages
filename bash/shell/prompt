@@ -1,11 +1,44 @@
 # Prompt
 
 
+# Curated 24-bit (truecolor) palette: bright, distinct, and readable on a
+# dark background. Replaces the old gsettings-driven light/dark 256-colour
+# palettes -- gsettings is GNOME-only, so on macOS `mode` was always empty
+# and every word fell back to the dark-green/maroon "light" palette (colour
+# 52 in particular was effectively invisible on a dark terminal).
+_MT_PALETTE_RGB=(
+  '114;159;207'  # sky blue
+  '138;226;52'   # lime green
+  '252;175;62'   # amber
+  '173;127;168'  # mauve
+  '52;226;226'   # cyan
+  '233;185;110'  # tan
+  '239;145;145'  # salmon
+  '255;213;79'   # gold
+)
+
+# Per-word manual override. Set entries in your shell rc *after* metool init:
+#   MT_COLOR_OVERRIDES[mba.local]='114;159;207'   # truecolor R;G;B
+#   MT_COLOR_OVERRIDES[m5]=208                     # or a bare 256-colour index
+declare -gA MT_COLOR_OVERRIDES 2>/dev/null || true
+
 colorize_word() {
   local word="$1"
   local salt="$2"
 
   [[ -z $word ]] && return 0
+
+  # Manual override wins (exact word match). A value containing ';' is
+  # treated as truecolor "R;G;B"; otherwise it's a 256-colour index.
+  local ov="${MT_COLOR_OVERRIDES[$word]:-}"
+  if [[ -n $ov ]]; then
+    if [[ $ov == *';'* ]]; then
+      echo -e "\[\033[38;2;${ov}m\]${word}\[\033[00m\]"
+    else
+      echo -e "\[\033[38;5;${ov}m\]${word}\[\033[00m\]"
+    fi
+    return 0
+  fi
 
   local sum=0
   for (( i=0; i<${#word}; i++ )); do
@@ -19,22 +52,8 @@ colorize_word() {
     sum=$((sum + ascii_val))
   done
 
-  local mode=""
-  if command -v gsettings &> /dev/null; then
-    if gsettings list-schemas &> /dev/null; then
-    	mode=$(gsettings get org.gnome.desktop.interface gtk-theme)
-    fi
-  fi
-  local palette
-  if [[ "$mode" == *'dark'* ]]; then
-    palette=("124" "160" "196" "202" "208" "214")
-  else
-    palette=("22" "28" "34" "40" "46" "52")
-  fi
-
-  local color_code="38;5;${palette[$((sum % ${#palette[@]}))]}"
-
-  echo -e "\[\033[${color_code}m\]${word}\[\033[00m\]"
+  local rgb="${_MT_PALETTE_RGB[$((sum % ${#_MT_PALETTE_RGB[@]}))]}"
+  echo -e "\[\033[38;2;${rgb}m\]${word}\[\033[00m\]"
 }
 
 git-ps1-quiet() {
